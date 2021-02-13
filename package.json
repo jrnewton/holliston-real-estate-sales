@@ -1,0 +1,42 @@
+{
+  "name": "holliston-real-estate",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^14.14.9",
+    "mocha": "^8.2.1",
+    "eslint": "^7.16.0",
+    "eslint-config-prettier": "^6.15.0",
+    "eslint-plugin-prettier": "^3.1.4",
+    "prettier": "^2.2.0"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": {
+      "es2020": true,
+      "node": true,
+      "mocha": true
+    },
+    "plugins": [
+      "prettier"
+    ],
+    "extends": [
+      "eslint:recommended",
+      "prettier"
+    ],
+    "rules": {
+      "strict": "error",
+      "semi": "error",
+      "prettier/prettier": "error"
+    },
+    "ignorePatterns": [
+      "node_modules/"
+    ]
+  },
+  "prettier": {
+    "singleQuote": true,
+    "trailingComma": "none",
+    "quoteProps": "consistent"
+  }
+}
