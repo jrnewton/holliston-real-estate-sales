@@ -7,12 +7,17 @@ const Stream = require('stream');
 const Axios = require('axios');
 const $ = require('cheerio');
 
-const AWS = require('aws-sdk');
+const { S3Client } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
 
-AWS.config.logger = console;
+const {
+  TextractClient,
+  DetectDocumentTextCommand
+} = require('@aws-sdk/client-textract');
 
 const INDEX_URL = 'https://hollistonreporter.com/category/real-estate/';
 const REGION = 'us-east-2';
+const S3_BUCKET = 'holliston-real-estate-sales';
 
 const getErrorMessage = (fn, url, error) => {
   let msg = `getPageList fetch of ${INDEX_URL} returned`;
@@ -125,83 +130,26 @@ const fetchAndUploadImage = async (imageUrl, imageName) => {
   let pass = new Stream.PassThrough();
   imageResponse.data.pipe(pass);
 
-  //upload the image
-  AWS.config.getCredentials(function (err) {
-    if (err) {
-      debug('credentials not loaded', JSON.stringify(err));
-    } else {
-      debug('Access key', AWS.config.credentials.accessKeyId);
+  //V3 does not support body passthrough, so use Upload as workaround.
+  //See https://github.com/aws/aws-sdk-js-v3/issues/1920
+  const upload = new Upload({
+    client: new S3Client({ apiVersion: '2006-03-01', region: REGION }),
+    params: {
+      Bucket: S3_BUCKET,
+      Key: imageName,
+      Body: pass
     }
   });
 
-  const s3 = new AWS.S3({
-    apiVersion: '2006-03-01',
-    region: REGION
-  });
-
-  const params = {
-    Bucket: 'holliston-real-estate-sales',
-    Key: imageName,
-    Body: pass
-  };
-
-  const s3Response = await s3.upload(params).promise();
+  const s3Response = await upload.done();
   debug('s3 upload complete');
   verbose('s3 response', s3Response);
 
   return s3Response;
 };
 
-/******* Example using v3 api *********/
-const uploadImageV3 = async (imageUrl) => {
-  const imageResponse = await Axios.get(imageUrl, {
-    responseType: 'stream'
-  });
-
-  let pass = new Stream.PassThrough();
-  imageResponse.data.pipe(pass);
-
-  //V3 of the S3 API does not support passthrough.  See https://github.com/aws/aws-sdk-js-v3/issues/1920
-  //
-  // const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-  // const s3 = new S3Client({ region: REGION });
-  // const params = {
-  //   Bucket: 'holliston-real-estate-sales',
-  //   Key: 'test.jpg',
-  //   Body: pass
-  // };
-  // try {
-  //   const r = await s3.send(new PutObjectCommand(params));
-  //   debug(r);
-  // } catch (error) {
-  //   debug(error);
-  // }
-
-  //Here is the workaround:
-  const { S3Client } = require('@aws-sdk/client-s3');
-  const { Upload } = require('@aws-sdk/lib-storage');
-
-  const upload = new Upload({
-    client: new S3Client({ region: REGION }),
-    params: {
-      Bucket: 'holliston-real-estate-sales',
-      Key: 'test.jpg',
-      Body: pass,
-      ContentType: 'image/jpeg'
-    }
-  });
-
-  const result = await upload.done();
-  debug('upload result', result);
-};
-/******* END *********/
-
 const getTextFromImage = async (bucket, key) => {
   debug(`extract text from ${bucket}/${key}`);
-  const {
-    TextractClient,
-    DetectDocumentTextCommand
-  } = require('@aws-sdk/client-textract');
   const client = new TextractClient({ region: REGION });
   const params = {
     Document: {
@@ -332,6 +280,7 @@ const processPage = async (url) => {
   let rawText = await processTextractObject(textractObject);
   let records = getRecords(rawText, month, year);
   verbose('records produced', records);
+  return records;
 };
 
 const processAll = async () => {

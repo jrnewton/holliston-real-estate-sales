@@ -8,10 +8,10 @@
     "test": "mocha"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.5.0",
     "@aws-sdk/client-s3": "^3.5.0",
     "@aws-sdk/client-textract": "^3.5.0",
     "@aws-sdk/lib-storage": "^3.5.0",
-    "aws-sdk": "^2.843.0",
     "axios": "^0.21.1",
     "cheerio": "^1.0.0-rc.5",
     "debug": "^4.3.1",
