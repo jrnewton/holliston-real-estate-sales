@@ -1,5 +1,8 @@
 'use strict';
 
+const debug = require('debug')('index');
+const verbose = require('debug')('index:verbose');
+
 const Stream = require('stream');
 const Axios = require('axios');
 const $ = require('cheerio');
@@ -11,6 +14,18 @@ AWS.config.logger = console;
 const INDEX_URL = 'https://hollistonreporter.com/category/real-estate/';
 const REGION = 'us-east-2';
 
+const getErrorMessage = (fn, url, error) => {
+  let msg = `getPageList fetch of ${INDEX_URL} returned`;
+
+  if (error.message) {
+    msg += ` ${error.status} (${error.statusText})`;
+  } else {
+    msg += JSON.stringify(error);
+  }
+
+  return msg;
+};
+
 const getPageList = async () => {
   const pageUrls = [];
 
@@ -18,24 +33,17 @@ const getPageList = async () => {
   try {
     response = await Axios.get(INDEX_URL);
   } catch (error) {
-    console.warn(
-      'getPageList failed',
-      INDEX_URL,
-      error.status,
-      error.statusText
-    );
+    throw new Error(getErrorMessage(INDEX_URL, error));
   }
 
-  if (response) {
-    const html = response.data;
-    const links = $('h3 a', html);
+  const html = response.data;
+  const links = $('h3 a', html);
 
-    for (const element of links) {
-      if (element.attribs.title.startsWith('Holliston Real Estate Sales')) {
-        const pageUrl = element.attribs.href;
-        console.log('getPageList found', pageUrl);
-        pageUrls.push(pageUrl);
-      }
+  for (const element of links) {
+    if (element.attribs.title.startsWith('Holliston Real Estate Sales')) {
+      const pageUrl = element.attribs.href;
+      debug('getPageList found', pageUrl);
+      pageUrls.push(pageUrl);
     }
   }
 
@@ -43,67 +51,74 @@ const getPageList = async () => {
 };
 
 const getImageData = async (pageUrl) => {
-  console.log('getImageData', pageUrl);
+  debug('getImageData', pageUrl);
 
   let getResponse = null;
   try {
     getResponse = await Axios.get(pageUrl);
   } catch (error) {
-    console.warn('page fetch failed', pageUrl, error.status, error.statusText);
-  }
-
-  if (!getResponse) {
-    console.warn('page response null');
-    return null;
+    throw new Error(getErrorMessage(pageUrl, error));
   }
 
   const html = getResponse.data;
-  //console.log('html head', html.slice(0, 100));
+  verbose('html head', html.slice(0, 100));
+
+  const headingTag = $('.fl-heading-text', html);
+  //tag text looks like:
+  //Holliston Real Estate Sales – November 2020; Part 1
+  //Holliston Real Estate Sales: January 2021 – Part 1
+  const headingText = headingTag.text();
+
+  //Note: text sometimes uses a weird hypen '–'
+  const headingMatch = headingText.match(
+    /Sales[\s\-\:\–]+([a-zA-Z]+)\s([0-9]{4})/
+  );
+
+  debug('heading text', headingText, 'match', headingMatch);
+
+  if (!headingMatch) {
+    throw new Error(`could not find month/year from ${pageUrl}`);
+  }
+
+  const month = headingMatch[1];
+  const year = headingMatch[2];
 
   const figures = $('figure img', html);
-  //console.log('img tag', figures[1]);
+  verbose('img tag', figures[1]);
   const imageUrl = figures[1].attribs.src;
 
   const data = {
+    month: month,
+    year: year,
     imageUrl: imageUrl,
     imageName: null
   };
 
   //the image name is everything after /uploads/ in imageUrl
-  const match = imageUrl.match(/\/uploads\/(.+)/);
+  const urlMatch = imageUrl.match(/\/uploads\/(.+)/);
 
-  if (!match) {
-    console.warn('could not match image name from', imageUrl);
-    return null;
+  debug('image url', imageUrl, 'match', urlMatch);
+
+  if (!urlMatch) {
+    throw new Error(`could not match image name from ${imageUrl}`);
   }
 
-  data.imageName = match[1].replace(/\//g, '_');
-  console.log('image data', data);
+  data.imageName = urlMatch[1].replace(/\//g, '_');
+  debug('image data', data);
   return data;
 };
 
-const uploadImage = async (imageUrl, imageName) => {
+const fetchAndUploadImage = async (imageUrl, imageName) => {
   //fetch the image
   let imageResponse = null;
   try {
-    console.log('fetching image...');
+    debug('fetching image...');
     imageResponse = await Axios.get(imageUrl, {
       responseType: 'stream'
     });
-    console.log('done');
+    debug('done');
   } catch (error) {
-    console.warn(
-      'image fetch failed',
-      imageUrl,
-      error.status
-        ? `${error.status} ${error.statusText}`
-        : JSON.stringify(error)
-    );
-  }
-
-  if (!imageResponse) {
-    console.warn('image response null');
-    return null;
+    throw new Error(getErrorMessage(imageUrl, error));
   }
 
   //setup the passthrough from download pipe to S3 upload pipe.
@@ -113,9 +128,9 @@ const uploadImage = async (imageUrl, imageName) => {
   //upload the image
   AWS.config.getCredentials(function (err) {
     if (err) {
-      console.log('credentials not loaded', JSON.stringify(err));
+      debug('credentials not loaded', JSON.stringify(err));
     } else {
-      console.log('Access key', AWS.config.credentials.accessKeyId);
+      debug('Access key', AWS.config.credentials.accessKeyId);
     }
   });
 
@@ -131,7 +146,8 @@ const uploadImage = async (imageUrl, imageName) => {
   };
 
   const s3Response = await s3.upload(params).promise();
-  console.log('s3 response', s3Response);
+  debug('s3 upload complete');
+  verbose('s3 response', s3Response);
 
   return s3Response;
 };
@@ -156,9 +172,9 @@ const uploadImageV3 = async (imageUrl) => {
   // };
   // try {
   //   const r = await s3.send(new PutObjectCommand(params));
-  //   console.log(r);
+  //   debug(r);
   // } catch (error) {
-  //   console.log(error);
+  //   debug(error);
   // }
 
   //Here is the workaround:
@@ -176,12 +192,12 @@ const uploadImageV3 = async (imageUrl) => {
   });
 
   const result = await upload.done();
-  console.log('upload result', result);
+  debug('upload result', result);
 };
 /******* END *********/
 
-const getTextFromImage = async (imageName) => {
-  console.log('extract text from', imageName);
+const getTextFromImage = async (bucket, key) => {
+  debug(`extract text from ${bucket}/${key}`);
   const {
     TextractClient,
     DetectDocumentTextCommand
@@ -190,8 +206,8 @@ const getTextFromImage = async (imageName) => {
   const params = {
     Document: {
       S3Object: {
-        Bucket: 'holliston-real-estate-sales',
-        Name: imageName
+        Bucket: bucket,
+        Name: key
       }
     }
   };
@@ -199,13 +215,11 @@ const getTextFromImage = async (imageName) => {
     new DetectDocumentTextCommand(params)
   );
 
-  console.log('textract output', textractObject);
+  verbose('textract output', textractObject);
   return textractObject;
 };
 
 const processTextractObject = (textractObject) => {
-  console.log(typeof textractObject);
-
   let results = [];
   for (const block of textractObject.Blocks) {
     if (block.BlockType === 'LINE') {
@@ -220,18 +234,17 @@ const processTextractObject = (textractObject) => {
     }
   }
 
-  console.log('text array', JSON.stringify(results));
+  debug('raw text array length', results.length);
+  verbose('text array', JSON.stringify(results));
   return results;
 };
 
-const getRecords = (results) => {
-  //Use dummy output for testing
-  //prettier-ignore
-  results = ["90 Rolling Meadow Dr $735,000","Seller","Appleton Grove LLC","Buyer","John and Margaret Gabour","192 Adams St","$607,500","Seller","Stephanie C and James M Pace","Buyer","Anna Zanelli and Gabriele Brambilla","24 Spring St","$799,900","Seller","O'Leary Builders Inc","Buyer","Brendan M Jackson and Sarah E and John D Shannanhan","370 Norfolk St","$670,000","Seller","Ricardo R and Alison H Morant","Buyer","Ryan T and Aishwarya J Weaver","47 Avon St","$535,000","Seller","Linda Perrotti and Linda P Skarmeas","Buyer","Alex R Wurzel and Marisa Altieri","55 Dean Rd","$440,500","Seller","Johanna S Thomas","Buyer","Patricia M Thomas","657 Concord St","$540,000","Seller","Devin and Jennifer Potter","Buyer","Jennifer Hamilton and Colin Edward and Vanessa Maryann Connors"];
-
+const getRecords = (textItems, month, year) => {
   const records = [];
 
   let record = {
+    month: month,
+    year: year,
     address: '',
     price: '',
     seller: '',
@@ -240,7 +253,7 @@ const getRecords = (results) => {
 
   let state = 0;
 
-  for (let item of results) {
+  for (let item of textItems) {
     item = item.trim();
 
     //0 = need address
@@ -301,7 +314,8 @@ const getRecords = (results) => {
     }
   }
 
-  console.log('records', records);
+  debug('# of records', records.length);
+  verbose('records', records);
   return records;
 };
 
@@ -311,30 +325,33 @@ const sleep = async (timeout) => {
   });
 };
 
-const main = async () => {
+const processPage = async (url) => {
+  let { imageUrl, imageName, month, year } = await getImageData(url);
+  let { Key, Bucket } = await fetchAndUploadImage(imageUrl, imageName);
+  let textractObject = await getTextFromImage(Bucket, Key);
+  let rawText = await processTextractObject(textractObject);
+  let records = getRecords(rawText, month, year);
+  verbose('records produced', records);
+};
+
+const processAll = async () => {
   for (const url of await getPageList()) {
     await sleep(5000);
-    let { imageUrl, imageName } = await getImageData(url);
-    let { bucketName, objectName } = await uploadImage(imageUrl, imageName);
-    let textractObject = getTextFromImage(bucketName, objectName);
-    let results = parseText(textractObject);
-    console.log(results);
+    processPage(url);
   }
 };
 
-// main();
+//export for testing
+module.exports.processTextractObject = processTextractObject;
+module.exports.getRecords = getRecords;
 
-(async () => {
-  // uploadImageV3(
-  //   'https://hollistonreporter.com/wp-content/uploads/2021/02/January-Sales.jpg'
+try {
+  // getImageData(
+  //   'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
   // );
-
-  // let { imageUrl, imageName } = await getImageData(
-  //   'https://hollistonreporter.com/2021/02/holliston-real-estate-sales-january-2021-part-1/'
-  // );
-  // await uploadImage(imageUrl, imageName);
-
-  // const textractObject = await getTextFromImage('2021_02_January-Sales.jpg');
-  // processTextractObject(textractObject);
-  getRecords();
-})();
+  processPage(
+    'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
+  );
+} catch (error) {
+  console.log(error);
+}
