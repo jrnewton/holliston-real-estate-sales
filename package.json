@@ -4,7 +4,8 @@
   "private": true,
   "main": "./src/index.js",
   "scripts": {
-    "start": "DEBUG=index node --unhandled-rejections=strict ./src/index.js",
+    "index": "DEBUG=index node --unhandled-rejections=strict ./src/index.js",
+    "import": "DEBUG=* node --unhandled-rejections=strict ./src/import.js",
     "test": "mocha"
   },
   "dependencies": {
@@ -15,6 +16,8 @@
     "axios": "^0.21.1",
     "cheerio": "^1.0.0-rc.5",
     "debug": "^4.3.1",
+    "street-suffix": "^1.0.1",
+    "uuid": "^8.3.2",
     "yargs": "^16.2.0"
   },
   "devDependencies": {
