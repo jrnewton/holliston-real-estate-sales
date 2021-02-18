@@ -242,7 +242,7 @@ const getRecords = (textItems, month, year, imageUrl) => {
       }
 
       //bash in town state zip :)
-      record.address.townName = ' Holliston';
+      record.address.townName = 'Holliston';
       record.address.stateName = 'MA';
       record.address.zipCode = '01746';
     }
