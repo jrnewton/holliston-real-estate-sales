@@ -76,7 +76,7 @@ const getImageData = async (pageUrl) => {
 
   //Note: text sometimes uses a weird hypen '–'
   const headingMatch = headingText.match(
-    /Sales[\s\-\:\–]+([a-zA-Z]+)\s([0-9]{4})/
+    /Sales[\s\-:–]+([a-zA-Z]+)\s([0-9]{4})/
   );
 
   debug('heading text', headingText, 'match', headingMatch);
@@ -167,7 +167,7 @@ const getTextFromImage = async (bucket, key) => {
   return textractObject;
 };
 
-const processTextractObject = (textractObject) => {
+const getLineData = (textractObject) => {
   let results = [];
   for (const block of textractObject.Blocks) {
     if (block.BlockType === 'LINE') {
@@ -187,17 +187,29 @@ const processTextractObject = (textractObject) => {
   return results;
 };
 
-const getRecords = (textItems, month, year) => {
-  const records = [];
-
-  let record = {
-    month: month,
-    year: year,
-    address: '',
+const CreateRecord = () => {
+  return {
+    sourceUrl: '',
+    month: '',
+    year: '',
+    address: {
+      streetNumber: '',
+      streetName: '',
+      streetSuffix: '',
+      townName: '',
+      stateName: '',
+      zipCode: ''
+    },
     price: '',
     seller: '',
     buyer: ''
   };
+};
+
+const getRecords = (textItems, month, year, imageUrl) => {
+  const records = [];
+
+  let record = CreateRecord();
 
   let state = 0;
 
@@ -206,21 +218,33 @@ const getRecords = (textItems, month, year) => {
 
     //0 = need address
     if (state === 0) {
-      //start of section is always an address
-      if (item.match(/^[0-9]/)) {
-        record.address = item;
-        state = 1;
+      //Start of line is always an address.
+      //if the address is long then AWS textrac seems to not
+      //split the price into a new line.
+      const addressMatch = item.match(
+        /^([0-9]+) ([a-zA-Z ]+) ([a-zA-Z]+)[ ]?[$]?([0-9,]+)?/
+      );
 
-        //if the address is long then AWS textrac does not split the price into a new item.
-        let split = item.split('$');
-        if (split.length > 1) {
-          [record.address, record.price] = split;
+      if (addressMatch) {
+        debug('address match', addressMatch);
+
+        record.address.streetNumber = addressMatch[1];
+        record.address.streetName = addressMatch[2];
+        record.address.streetSuffix = addressMatch[3];
+
+        //optional price
+        if (addressMatch.length > 4 && addressMatch[4]) {
+          record.price = addressMatch[4];
           state = 2;
+        } else {
+          state = 1;
         }
       }
 
-      //append town state zip :)
-      record.address += ' Holliston, MA 01746';
+      //bash in town state zip :)
+      record.address.townName = ' Holliston';
+      record.address.stateName = 'MA';
+      record.address.zipCode = '01746';
     }
     //1 = need price
     else if (state === 1) {
@@ -247,15 +271,15 @@ const getRecords = (textItems, month, year) => {
     //5 = need buyer
     else if (state === 5) {
       record.buyer = item;
+
+      record.month = month;
+      record.year = year;
+      record.sourceUrl = imageUrl;
+
       records.push(record);
 
       //reset
-      record = {
-        address: '',
-        price: '',
-        seller: '',
-        buyer: ''
-      };
+      record = CreateRecord();
       state = 0;
     } else {
       throw new Error('unsupported state: ' + state + '. Item = ' + item);
@@ -277,8 +301,8 @@ const processPage = async (url) => {
   let { imageUrl, imageName, month, year } = await getImageData(url);
   let { Key, Bucket } = await fetchAndUploadImage(imageUrl, imageName);
   let textractObject = await getTextFromImage(Bucket, Key);
-  let rawText = await processTextractObject(textractObject);
-  let records = getRecords(rawText, month, year);
+  let rawText = await getLineData(textractObject);
+  let records = getRecords(rawText, month, year, imageUrl);
   verbose('records produced', records);
   return records;
 };
@@ -291,16 +315,19 @@ const processAll = async () => {
 };
 
 //export for testing
-module.exports.processTextractObject = processTextractObject;
+module.exports.getLineData = getLineData;
 module.exports.getRecords = getRecords;
 
-try {
-  // getImageData(
-  //   'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
-  // );
-  processPage(
-    'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
-  );
-} catch (error) {
-  console.log(error);
-}
+(async () => {
+  try {
+    const out = await processPage(
+      'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
+    );
+    console.log('records', out);
+
+    const fs = require('fs');
+    fs.writeFileSync('out.json', JSON.stringify(out));
+  } catch (error) {
+    console.log(error);
+  }
+})();
