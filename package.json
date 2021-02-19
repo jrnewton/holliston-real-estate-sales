@@ -2,10 +2,9 @@
   "name": "holliston-real-estate",
   "version": "0.0.1",
   "private": true,
-  "main": "./src/index.js",
+  "main": "./src/etl.js",
   "scripts": {
-    "index": "DEBUG=index node --unhandled-rejections=strict ./src/index.js",
-    "import": "DEBUG=* node --unhandled-rejections=strict ./src/import.js",
+    "etl": "DEBUG=etl:* node --trace-warnings --unhandled-rejections=strict ./src/etl.js 2>&1 | tee etl-$(date +%s%N).log",
     "test": "mocha"
   },
   "dependencies": {

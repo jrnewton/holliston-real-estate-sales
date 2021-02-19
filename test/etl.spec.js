@@ -1,7 +1,7 @@
 'use strict';
 
 const textractObject = require('./textract.json');
-const { processTextractObject, getRecords } = require('../src/index');
+const { processTextractObject, getRecords } = require('../src/etl');
 const assert = require('assert');
 
 it('should process textract object into string array', () => {

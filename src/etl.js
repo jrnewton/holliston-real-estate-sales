@@ -1,13 +1,18 @@
 'use strict';
 
-const debug = require('debug')('index');
-const verbose = require('debug')('index:verbose');
+//see main() function for documentation
+
+const debug = require('debug')('etl:debug');
+const verbose = require('debug')('etl:verbose');
 
 const Stream = require('stream');
 const Axios = require('axios');
 const $ = require('cheerio');
 
-const { S3Client } = require('@aws-sdk/client-s3');
+const suffixUtil = require('street-suffix');
+
+const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
+const { S3Client, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 
 const {
@@ -15,12 +20,12 @@ const {
   DetectDocumentTextCommand
 } = require('@aws-sdk/client-textract');
 
-const INDEX_URL = 'https://hollistonreporter.com/category/real-estate/';
 const REGION = 'us-east-2';
 const S3_BUCKET = 'holliston-real-estate-sales';
+const DYNAMODB_TABLE = 'hres-20210218';
 
 const getErrorMessage = (fn, url, error) => {
-  let msg = `getPageList fetch of ${INDEX_URL} returned`;
+  let msg = `getPageList fetch of ${url} returned`;
 
   if (error.message) {
     msg += ` ${error.status} (${error.statusText})`;
@@ -31,14 +36,14 @@ const getErrorMessage = (fn, url, error) => {
   return msg;
 };
 
-const getPageList = async () => {
+const getListings = async (rootUrl) => {
   const pageUrls = [];
 
   let response = null;
   try {
-    response = await Axios.get(INDEX_URL);
+    response = await Axios.get(rootUrl);
   } catch (error) {
-    throw new Error(getErrorMessage(INDEX_URL, error));
+    throw new Error(getErrorMessage(rootUrl, error));
   }
 
   const html = response.data;
@@ -56,7 +61,7 @@ const getPageList = async () => {
 };
 
 const getImageData = async (pageUrl) => {
-  debug('getImageData', pageUrl);
+  debug('[getImageData]', pageUrl);
 
   let getResponse = null;
   try {
@@ -110,14 +115,33 @@ const getImageData = async (pageUrl) => {
 
   data.imageName = urlMatch[1].replace(/\//g, '_');
   debug('image data', data);
+
   return data;
 };
 
-const fetchAndUploadImage = async (imageUrl, imageName) => {
-  //fetch the image
+const fetchAndUploadImage = async (s3Client, imageUrl, imageName) => {
+  debug('[fetchingAndUploadImage]', imageName);
+
+  //check to see if image is already in S3.
+  const headCommand = new HeadObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: imageName
+  });
+
+  try {
+    const headResponse = await s3Client.send(headCommand);
+    verbose('s3 head response', headResponse);
+    if (headResponse.$metadata.httpStatusCode === 200) {
+      //its already there - bail now
+      verbose('object already in S3, exit early');
+      return { Key: imageName, Bucket: S3_BUCKET };
+    }
+  } catch (error) {
+    //object aint there
+  }
+
   let imageResponse = null;
   try {
-    debug('fetching image...');
     imageResponse = await Axios.get(imageUrl, {
       responseType: 'stream'
     });
@@ -133,7 +157,7 @@ const fetchAndUploadImage = async (imageUrl, imageName) => {
   //V3 does not support body passthrough, so use Upload as workaround.
   //See https://github.com/aws/aws-sdk-js-v3/issues/1920
   const upload = new Upload({
-    client: new S3Client({ apiVersion: '2006-03-01', region: REGION }),
+    client: s3Client,
     params: {
       Bucket: S3_BUCKET,
       Key: imageName,
@@ -149,8 +173,10 @@ const fetchAndUploadImage = async (imageUrl, imageName) => {
 };
 
 const getTextFromImage = async (bucket, key) => {
-  debug(`extract text from ${bucket}/${key}`);
+  debug('[getTextFromImage]', bucket, key);
+
   const client = new TextractClient({ region: REGION });
+
   const params = {
     Document: {
       S3Object: {
@@ -159,6 +185,7 @@ const getTextFromImage = async (bucket, key) => {
       }
     }
   };
+
   const textractObject = await client.send(
     new DetectDocumentTextCommand(params)
   );
@@ -168,6 +195,8 @@ const getTextFromImage = async (bucket, key) => {
 };
 
 const getLineData = (textractObject) => {
+  debug('[getLineData]');
+
   let results = [];
   for (const block of textractObject.Blocks) {
     if (block.BlockType === 'LINE') {
@@ -184,6 +213,7 @@ const getLineData = (textractObject) => {
 
   debug('raw text array length', results.length);
   verbose('text array', JSON.stringify(results));
+
   return results;
 };
 
@@ -207,6 +237,8 @@ const CreateRecord = () => {
 };
 
 const getRecords = (textItems, month, year, imageUrl) => {
+  debug('[getRecords]', month, year, imageUrl);
+
   const records = [];
 
   let record = CreateRecord();
@@ -288,46 +320,174 @@ const getRecords = (textItems, month, year, imageUrl) => {
 
   debug('# of records', records.length);
   verbose('records', records);
+
   return records;
 };
 
+const putItem = async (dbClient, record) => {
+  debug('[putItem]', record.year, record.month, JSON.stringify(record.address));
+
+  // Primary Key is based on the fact that I'm only storing data for
+  // Holliston MA, E.g. street name/number is unique enough for a single
+  // a single town. (although maybe apt/condo will trip me up?)
+  //
+  // If I wanted to store other towns then town/state/zip would need
+  // to be incorporated.
+
+  //Format: STREET#<street name>
+  const pk = (
+    'STREET#' +
+    record.address.streetName +
+    ' ' +
+    suffixUtil.expand(record.address.streetSuffix)
+  ).toUpperCase();
+
+  //Format: <YYYYMM>#<price>#<street number>
+  const sk = (
+    record.year +
+    getMonthNumber(record.month) +
+    '#' +
+    getPriceAsNumber(record.price) +
+    '#' +
+    record.address.streetNumber
+  ).toUpperCase();
+
+  const params = {
+    TableName: DYNAMODB_TABLE,
+    Item: {
+      PK: {
+        S: pk
+      },
+      SK: {
+        S: sk
+      },
+      SourceUrl: {
+        S: record.sourceUrl
+      },
+      Month: {
+        S: record.month
+      },
+      Year: {
+        N: record.year
+      },
+      Address: {
+        S: getAddressAsString(record.address)
+      },
+      Buyer: {
+        S: record.buyer
+      },
+      Seller: {
+        S: record.seller
+      },
+      Price: {
+        N: getPriceAsNumber(record.price)
+      }
+    }
+  };
+
+  verbose('PutItemCommand params', JSON.stringify(params));
+  const command = new PutItemCommand(params);
+
+  await dbClient.send(command);
+};
+
+//------------- Utility routines ----------------------
 const sleep = async (timeout) => {
   return new Promise((resolve) => {
     setTimeout(resolve, timeout);
   });
 };
 
-const processPage = async (url) => {
-  let { imageUrl, imageName, month, year } = await getImageData(url);
-  let { Key, Bucket } = await fetchAndUploadImage(imageUrl, imageName);
-  let textractObject = await getTextFromImage(Bucket, Key);
-  let rawText = await getLineData(textractObject);
-  let records = getRecords(rawText, month, year, imageUrl);
-  verbose('records produced', records);
-  return records;
+//map names to numbers, as strings in order to keep leading zeros (which means good lexigraphical order).
+const monthNumberLookup = {
+  JANUARY: '01',
+  FEBRUARY: '02',
+  MARCH: '03',
+  APRIL: '04',
+  MAY: '05',
+  JUNE: '06',
+  JULY: '07',
+  AUGUST: '08',
+  SEPTEMBER: '09',
+  OCTOBER: '10',
+  NOVEMBER: '11',
+  DECEMBER: '12'
 };
 
-const processAll = async () => {
-  for (const url of await getPageList()) {
-    await sleep(5000);
-    processPage(url);
-  }
+const getMonthNumber = (month) => {
+  return monthNumberLookup[month.toUpperCase()] || month;
 };
+
+const getPriceAsNumber = (priceString) => {
+  return priceString.replace(/[$, ]/g, '');
+};
+
+const getAddressAsString = (address) => {
+  return (
+    address.streetNumber +
+    ' ' +
+    address.streetName +
+    ' ' +
+    address.streetSuffix +
+    ' ' +
+    address.townName +
+    ' ' +
+    address.stateName +
+    ' ' +
+    address.zipCode
+  );
+};
+
+//------------- Main ----------------------
+const rootUrls = [
+  'https://hollistonreporter.com/category/real-estate/',
+  'https://hollistonreporter.com/category/real-estate/page/2/',
+  'https://hollistonreporter.com/category/real-estate/page/3/'
+];
+
+(async () => {
+  const s3Client = new S3Client({ apiVersion: '2006-03-01', region: REGION });
+  const dbClient = new DynamoDBClient({
+    region: REGION,
+    logger: console,
+    debug: false
+  });
+
+  //for these top level pages
+  for (const root of rootUrls) {
+    //get a list of child pages that contain the sales image
+    for (const url of await getListings(root)) {
+      //extract the image data
+      let { imageUrl, imageName, month, year } = await getImageData(url);
+
+      //download the image and upload to S3
+      let { Key, Bucket } = await fetchAndUploadImage(
+        s3Client,
+        imageUrl,
+        imageName
+      );
+
+      //get OCR text via AWS textract, referencing the image in S3
+      let textractObject = await getTextFromImage(Bucket, Key);
+
+      //pull out the LINE data from the textract output
+      let rawText = getLineData(textractObject);
+
+      //turn that raw line data into JSON records.
+      let records = getRecords(rawText, month, year, imageUrl);
+
+      //put those records into Dynamo
+      for (let record of records) {
+        await putItem(dbClient, record);
+      }
+
+      //don't hammer the webserver
+      debug('sleep for 1 minute');
+      await sleep(60000);
+    }
+  }
+})();
 
 //export for testing
 module.exports.getLineData = getLineData;
 module.exports.getRecords = getRecords;
-
-(async () => {
-  try {
-    const out = await processPage(
-      'https://hollistonreporter.com/2020/12/holliston-real-estate-sales-november-2020-part-1/'
-    );
-    console.log('records', out);
-
-    const fs = require('fs');
-    fs.writeFileSync('out.json', JSON.stringify(out));
-  } catch (error) {
-    console.log(error);
-  }
-})();
