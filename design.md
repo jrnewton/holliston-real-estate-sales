@@ -42,3 +42,17 @@ Maybe just right?
 PK - street#<street name>
 SK - <YYMM>#<price>#<street number> (maybe put price into a secondary index?)
 ```
+
+### C (adjusted)
+
+```
+PK - STREET#<street name>
+SK - <street number>#<YYYYMM>
+```
+
+### GSI based on Scenario A
+
+GSIPK1: YEAR#<year>
+GSISK1: <street name>#<street number>#<YYYYMM>
+
+<month>#<price>#<full address>
