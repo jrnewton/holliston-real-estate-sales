@@ -217,31 +217,57 @@ const getLineData = (textractObject) => {
   return results;
 };
 
-const CreateRecord = () => {
-  return {
-    sourceUrl: '',
-    month: '',
-    year: '',
-    address: {
-      streetNumber: '',
-      streetName: '',
-      streetSuffix: '',
-      townName: '',
-      stateName: '',
-      zipCode: ''
-    },
-    price: '',
-    seller: '',
-    buyer: ''
-  };
-};
+const getRecords = (textItems, monthName, year, imageUrl) => {
+  debug('[getRecords]', monthName, year, imageUrl);
 
-const getRecords = (textItems, month, year, imageUrl) => {
-  debug('[getRecords]', month, year, imageUrl);
+  const getPriceAsNumber = (priceString) => {
+    return priceString.replace(/[^0-9]/g, '');
+  };
+
+  const createRecord = () => {
+    return {
+      sourceUrl: '',
+      monthName: '',
+      month: '',
+      year: '',
+      address: {
+        streetNumber: '',
+        streetName: '',
+        streetSuffix: '',
+        unit: '',
+        townName: '',
+        stateName: '',
+        zipCode: ''
+      },
+      price: '',
+      seller: '',
+      buyer: ''
+    };
+  };
+
+  //map names to numbers, as strings in order to keep leading zeros (which means good lexigraphical order).
+  const monthNumberLookup = {
+    JANUARY: '01',
+    FEBRUARY: '02',
+    MARCH: '03',
+    APRIL: '04',
+    MAY: '05',
+    JUNE: '06',
+    JULY: '07',
+    AUGUST: '08',
+    SEPTEMBER: '09',
+    OCTOBER: '10',
+    NOVEMBER: '11',
+    DECEMBER: '12'
+  };
+
+  const getMonthNumber = (monthName) => {
+    return monthNumberLookup[monthName.toUpperCase()] || monthName;
+  };
 
   const records = [];
 
-  let record = CreateRecord();
+  let record = createRecord();
 
   let state = 0;
 
@@ -251,25 +277,29 @@ const getRecords = (textItems, month, year, imageUrl) => {
     //0 = need address
     if (state === 0) {
       //Start of line is always an address.
-      //if the address is long then AWS textrac seems to not
+      //if the address is long then AWS textract seems to not
       //split the price into a new line.
+
+      let foundPrice = false;
+      if (item.indexOf('$') !== -1) {
+        let [streetNumAndName, price] = item.split('$');
+        item = streetNumAndName.trim();
+        record.price = getPriceAsNumber(price);
+        foundPrice = true;
+      }
+
       const addressMatch = item.match(
-        /^([0-9]+) ([a-zA-Z ]+) ([a-zA-Z]+)[ ]?[$]?([0-9,]+)?/
+        // /^([0-9]+) ([a-zA-Z ]+) ([a-zA-Z]+)[ ]?[$]?([0-9,]+)?/
+        /^([0-9]+) ([a-zA-Z ]+) ([a-zA-Z]+)( [Uu]nit [0-9]+)?$/
       );
 
       if (addressMatch) {
         debug('address match', addressMatch);
-
-        record.address.streetNumber = addressMatch[1];
-        record.address.streetName = addressMatch[2];
-        record.address.streetSuffix = addressMatch[3];
-
-        //optional price
+        record.address.streetNumber = addressMatch[1].trim();
+        record.address.streetName = addressMatch[2].trim();
+        record.address.streetSuffix = addressMatch[3].trim();
         if (addressMatch.length > 4 && addressMatch[4]) {
-          record.price = addressMatch[4];
-          state = 2;
-        } else {
-          state = 1;
+          record.address.unit = addressMatch[4].trim();
         }
       }
 
@@ -277,41 +307,48 @@ const getRecords = (textItems, month, year, imageUrl) => {
       record.address.townName = 'Holliston';
       record.address.stateName = 'MA';
       record.address.zipCode = '01746';
+
+      state++;
+
+      if (foundPrice) {
+        state++;
+      }
     }
     //1 = need price
     else if (state === 1) {
-      record.price = item;
-      state = 2;
+      record.price = getPriceAsNumber(item);
+      state++;
     }
     //2 = need seller label
     else if (state === 2) {
       if (item.toUpperCase() === 'SELLER') {
-        state = 3;
+        state++;
       }
     }
     //3 = need seller
     else if (state === 3) {
-      record.seller = item;
-      state = 4;
+      record.seller = item.trim();
+      state++;
     }
     //4 = need buyer label
     else if (state === 4) {
       if (item.toUpperCase() === 'BUYER') {
-        state = 5;
+        state++;
       }
     }
     //5 = need buyer
     else if (state === 5) {
-      record.buyer = item;
+      record.buyer = item.trim();
 
-      record.month = month;
+      record.monthName = monthName;
+      record.month = getMonthNumber(monthName);
       record.year = year;
       record.sourceUrl = imageUrl;
 
       records.push(record);
 
       //reset
-      record = CreateRecord();
+      record = createRecord();
       state = 0;
     } else {
       throw new Error('unsupported state: ' + state + '. Item = ' + item);
@@ -324,7 +361,7 @@ const getRecords = (textItems, month, year, imageUrl) => {
   return records;
 };
 
-const putItem = async (dbClient, record) => {
+const putItem = async (dbClient, record, dryrun = false) => {
   debug('[putItem]', record.year, record.month, JSON.stringify(record.address));
 
   // Primary Key is based on the fact that I'm only storing data for
@@ -333,24 +370,66 @@ const putItem = async (dbClient, record) => {
   //
   // If I wanted to store other towns then town/state/zip would need
   // to be incorporated.
+  //
+  //Also assumes that a single address will not appear more than
+  //once in the same monthly listing.
 
-  //Format: STREET#<street name>
-  const pk = (
-    'STREET#' +
+  const fullStreetName =
     record.address.streetName +
     ' ' +
-    suffixUtil.expand(record.address.streetSuffix)
+    suffixUtil.expand(record.address.streetSuffix);
+
+  //PK format: STREET#<full street name>
+  const pk = ('STREET#' + fullStreetName).toUpperCase();
+
+  //SK format: <street number>#<YYYYMM>
+  const sk = (
+    record.address.streetNumber +
+    '#' +
+    record.year +
+    record.month
   ).toUpperCase();
 
-  //Format: <YYYYMM>#<price>#<street number>
-  const sk = (
+  //GSIPK1 format: YEAR#<yyy>
+  const gsipk1 = 'YEAR#' + record.year;
+
+  //GSISK1 format: <full street name>#<street number>#<yyyymm>
+  const gsisk1 = (
+    fullStreetName +
+    '#' +
+    record.address.streetNumber +
+    '#' +
     record.year +
-    getMonthNumber(record.month) +
-    '#' +
-    getPriceAsNumber(record.price) +
-    '#' +
-    record.address.streetNumber
+    record.month
   ).toUpperCase();
+
+  const addressAsString =
+    record.address.streetNumber +
+    ' ' +
+    record.address.streetName +
+    ' ' +
+    record.address.streetSuffix +
+    ' ' +
+    (record.address.unit ? `${record.address.unit} ` : '') +
+    record.address.townName +
+    ' ' +
+    record.address.stateName +
+    ' ' +
+    record.address.zipCode;
+
+  const addressAsMap = {
+    streetNumber: { N: record.address.streetNumber },
+    streetName: { S: record.address.streetName },
+    streetSuffix: { S: record.address.streetSuffix },
+    unit: { S: record.address.unit },
+    townName: { S: record.address.townName },
+    stateName: { S: record.address.stateName },
+    zipCode: { S: record.address.zipCode }
+  };
+
+  const importDate = new Date();
+
+  const importTimestamp = Date.now() + '';
 
   const params = {
     TableName: DYNAMODB_TABLE,
@@ -361,17 +440,29 @@ const putItem = async (dbClient, record) => {
       SK: {
         S: sk
       },
+      GSIPK1: {
+        S: gsipk1
+      },
+      GSISK1: {
+        S: gsisk1
+      },
       SourceUrl: {
         S: record.sourceUrl
       },
+      MonthName: {
+        S: record.monthName
+      },
       Month: {
-        S: record.month
+        N: record.month
       },
       Year: {
         N: record.year
       },
+      FullAddress: {
+        S: addressAsString
+      },
       Address: {
-        S: getAddressAsString(record.address)
+        M: addressAsMap
       },
       Buyer: {
         S: record.buyer
@@ -380,15 +471,25 @@ const putItem = async (dbClient, record) => {
         S: record.seller
       },
       Price: {
-        N: getPriceAsNumber(record.price)
+        N: record.price
+      },
+      ImportDate: {
+        S: importDate
+      },
+      ImportTimestamp: {
+        N: importTimestamp
       }
     }
   };
 
-  verbose('PutItemCommand params', JSON.stringify(params));
-  const command = new PutItemCommand(params);
+  if (dryrun) {
+    console.log('PutItemCommand params', JSON.stringify(params, null, 2));
+  } else {
+    verbose('PutItemCommand params', JSON.stringify(params));
+    const command = new PutItemCommand(params);
 
-  await dbClient.send(command);
+    await dbClient.send(command);
+  }
 };
 
 //------------- Utility routines ----------------------
@@ -398,54 +499,8 @@ const sleep = async (timeout) => {
   });
 };
 
-//map names to numbers, as strings in order to keep leading zeros (which means good lexigraphical order).
-const monthNumberLookup = {
-  JANUARY: '01',
-  FEBRUARY: '02',
-  MARCH: '03',
-  APRIL: '04',
-  MAY: '05',
-  JUNE: '06',
-  JULY: '07',
-  AUGUST: '08',
-  SEPTEMBER: '09',
-  OCTOBER: '10',
-  NOVEMBER: '11',
-  DECEMBER: '12'
-};
-
-const getMonthNumber = (month) => {
-  return monthNumberLookup[month.toUpperCase()] || month;
-};
-
-const getPriceAsNumber = (priceString) => {
-  return priceString.replace(/[$, ]/g, '');
-};
-
-const getAddressAsString = (address) => {
-  return (
-    address.streetNumber +
-    ' ' +
-    address.streetName +
-    ' ' +
-    address.streetSuffix +
-    ' ' +
-    address.townName +
-    ' ' +
-    address.stateName +
-    ' ' +
-    address.zipCode
-  );
-};
-
 //------------- Main ----------------------
-const rootUrls = [
-  'https://hollistonreporter.com/category/real-estate/',
-  'https://hollistonreporter.com/category/real-estate/page/2/',
-  'https://hollistonreporter.com/category/real-estate/page/3/'
-];
-
-(async () => {
+const main = async (rootUrls) => {
   const s3Client = new S3Client({ apiVersion: '2006-03-01', region: REGION });
   const dbClient = new DynamoDBClient({
     region: REGION,
@@ -486,8 +541,12 @@ const rootUrls = [
       await sleep(60000);
     }
   }
-})();
+};
 
-//export for testing
-module.exports.getLineData = getLineData;
-module.exports.getRecords = getRecords;
+module.exports = {
+  main,
+  putItem,
+  //for unit tests
+  getLineData,
+  getRecords
+};
