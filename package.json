@@ -3,8 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "etl": "DEBUG=etl:* node --trace-warnings --unhandled-rejections=strict ./src/etl/main.js 2>&1 | tee etl-$(date +%s%N).log",
-    "test": "mocha"
+    "etl": "DEBUG=etl:* node --trace-warnings --unhandled-rejections=strict ./etl/src/main.js 2>&1 | tee ./etl/logs/etl-$(date +%s%N).log",
+    "test": "mocha **/test/*.spec.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.5.0",

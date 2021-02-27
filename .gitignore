@@ -1,4 +1,6 @@
 node_modules/
 out*
 diff
-etl-*.log
+# ETL temp files
+etl/archive/
+etl/logs/

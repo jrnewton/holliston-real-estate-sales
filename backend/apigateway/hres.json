@@ -1,0 +1,160 @@
+{
+  "swagger" : "2.0",
+  "info" : {
+    "version" : "2021-02-23T04:19:08Z",
+    "title" : "hres"
+  },
+  "host" : "s1l04bl4xb.execute-api.us-east-2.amazonaws.com",
+  "basePath" : "/api",
+  "schemes" : [ "https" ],
+  "paths" : {
+    "/v1/all" : {
+      "get" : {
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "responses" : {
+          "200" : {
+            "description" : "200 response",
+            "schema" : {
+              "$ref" : "#/definitions/Empty"
+            }
+          },
+          "500" : {
+            "description" : "500 response",
+            "schema" : {
+              "$ref" : "#/definitions/Error"
+            }
+          }
+        },
+        "security" : [ {
+          "api_key" : [ ]
+        } ],
+        "x-amazon-apigateway-integration" : {
+          "credentials" : "arn:aws:iam::336249122316:role/hres_api_gateway",
+          "uri" : "arn:aws:apigateway:us-east-2:dynamodb:action/Scan",
+          "httpMethod" : "POST",
+          "responses" : {
+            "200" : {
+              "statusCode" : "200",
+              "responseTemplates" : {
+                "application/json" : "#set($inputRoot = $input.path('$'))\n{\n  \"count\": $inputRoot.Count,\n  \"data\": [\n    #foreach($i in $inputRoot.Items) {\n      \"date\": \"$i.Month.S/$i.Year.N\",\n      \"address\": \"$i.Address.S\",\n      \"buyer\": \"$i.Buyer.S\",\n      \"seller\": \"$i.Seller.S\",\n      \"price\": \"$i.Price.N\"\n    }#if($foreach.hasNext),#end\n\t#end\n    ]\n}"
+              }
+            },
+            "default" : {
+              "statusCode" : "500"
+            }
+          },
+          "requestTemplates" : {
+            "application/json" : "{\n  \"TableName\": \"hres-20210218\"\n}\n"
+          },
+          "passthroughBehavior" : "when_no_templates",
+          "type" : "aws"
+        }
+      }
+    },
+    "/v1/hello" : {
+      "get" : {
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "responses" : {
+          "200" : {
+            "description" : "200 response",
+            "schema" : {
+              "$ref" : "#/definitions/Empty"
+            }
+          }
+        },
+        "security" : [ {
+          "api_key" : [ ]
+        } ],
+        "x-amazon-apigateway-integration" : {
+          "responses" : {
+            "default" : {
+              "statusCode" : "200",
+              "responseTemplates" : {
+                "application/json" : "{ \n  \"message\": \"hello, world\"\n}"
+              }
+            }
+          },
+          "requestTemplates" : {
+            "application/json" : "{\"statusCode\": 200}"
+          },
+          "passthroughBehavior" : "when_no_match",
+          "type" : "mock"
+        }
+      }
+    },
+    "/v1/street" : {
+      "get" : {
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "name",
+          "in" : "query",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "200 response",
+            "schema" : {
+              "$ref" : "#/definitions/Empty"
+            }
+          },
+          "500" : {
+            "description" : "500 response",
+            "schema" : {
+              "$ref" : "#/definitions/Error"
+            }
+          }
+        },
+        "security" : [ {
+          "api_key" : [ ]
+        } ],
+        "x-amazon-apigateway-integration" : {
+          "credentials" : "arn:aws:iam::336249122316:role/hres_api_gateway",
+          "uri" : "arn:aws:apigateway:us-east-2:dynamodb:action/Query",
+          "httpMethod" : "POST",
+          "responses" : {
+            "200" : {
+              "statusCode" : "200",
+              "responseTemplates" : {
+                "application/json" : "#set($inputRoot = $input.path('$'))\n{\n  \"count\": $inputRoot.Count,\n  \"data\": [\n    #foreach($i in $inputRoot.Items) {\n      \"date\": \"$i.Month.S/$i.Year.N\",\n      \"address\": \"$i.Address.S\",\n      \"buyer\": \"$i.Buyer.S\",\n      \"seller\": \"$i.Seller.S\",\n      \"price\": \"$i.Price.N\"\n    }#if($foreach.hasNext),#end\n\t#end\n    ]\n}"
+              }
+            },
+            "default" : {
+              "statusCode" : "500"
+            }
+          },
+          "requestTemplates" : {
+            "application/json" : "{\n  ## Hash is a reserved in VTL so use this placeholder.\n  #set( $H = '#' )\n  \"TableName\": \"hres-20210218\",\n  \"KeyConditionExpression\": \"PK = :street\",\n  \"ExpressionAttributeValues\": {\n    \":street\": {\n      \"S\": \"STREET$H$util.escapeJavaScript($input.params('name'))\"\n     }\n   }\n}\n"
+          },
+          "passthroughBehavior" : "when_no_templates",
+          "type" : "aws"
+        }
+      }
+    }
+  },
+  "securityDefinitions" : {
+    "api_key" : {
+      "type" : "apiKey",
+      "name" : "x-api-key",
+      "in" : "header"
+    }
+  },
+  "definitions" : {
+    "Empty" : {
+      "type" : "object",
+      "title" : "Empty Schema"
+    },
+    "Error" : {
+      "type" : "object",
+      "properties" : {
+        "message" : {
+          "type" : "string"
+        }
+      },
+      "title" : "Error Schema"
+    }
+  }
+}
