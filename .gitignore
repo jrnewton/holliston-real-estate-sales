@@ -1,4 +1,5 @@
 node_modules/
+dist/
 out*
 diff
 # ETL temp files

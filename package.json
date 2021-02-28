@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "etl": "DEBUG=etl:* node --trace-warnings --unhandled-rejections=strict ./etl/src/main.js 2>&1 | tee ./etl/logs/etl-$(date +%s%N).log",
-    "test": "mocha **/test/*.spec.js"
+    "test": "mocha **/test/*.spec.js",
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "kill": "pgrep -f \"vue-cli-service\" | xargs kill"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.5.0",
@@ -13,9 +16,13 @@
     "@aws-sdk/lib-storage": "^3.5.0",
     "axios": "^0.21.1",
     "cheerio": "^1.0.0-rc.5",
+    "core-js": "^3.6.5",
     "debug": "^4.3.1",
     "street-suffix": "^1.0.1",
+    "url-to-s3": "^1.0.0",
     "uuid": "^8.3.2",
+    "vue": "^3.0.0",
+    "vue-router": "^4.0.3",
     "yargs": "^16.2.0"
   },
   "devDependencies": {
@@ -25,7 +32,13 @@
     "eslint-plugin-prettier": "^3.1.4",
     "mocha": "^8.3.0",
     "nodemon": "^2.0.7",
-    "prettier": "^2.2.0"
+    "prettier": "^2.2.0",
+    "@vue/cli-plugin-babel": "~4.5.0",
+    "@vue/cli-plugin-eslint": "~4.5.0",
+    "@vue/cli-service": "~4.5.0",
+    "@vue/compiler-sfc": "^3.0.0-0",
+    "babel-eslint": "^10.1.0",
+    "eslint-plugin-vue": "^7.0.0-0"
   },
   "eslintConfig": {
     "root": true,
@@ -39,8 +52,12 @@
     ],
     "extends": [
       "eslint:recommended",
-      "prettier"
+      "prettier",
+      "plugin:vue/vue3-essential"
     ],
+    "parserOptions": {
+      "parser": "babel-eslint"
+    },
     "rules": {
       "strict": "error",
       "semi": "error",
@@ -50,6 +67,11 @@
       "node_modules/"
     ]
   },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ],
   "prettier": {
     "singleQuote": true,
     "trailingComma": "none",
