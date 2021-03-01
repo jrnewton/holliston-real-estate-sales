@@ -12,6 +12,8 @@ Stack:
 
 In no particular order.
 
+- [ ] return metadata structure that describes the data object.
+
 - [ ] add kuid to all records, but not part of a key (for use by Vue).
 
 - [ ] Make sure numbers are zero padded for lexigraphical sorting.
@@ -21,6 +23,8 @@ In no particular order.
   - Local node.js program: parse website and upload images to S3 bucket. Eventually run this program on scheduled EC2 instance.
   - Lambda function triggered on S3 bucket update: put image through AWS textract, output into DynamoDB table "hres_etl_textract" with PK=S3 URI of image.
   - Lambda function triggered on DynamoDB stream: convert textract into records and insert into DynamoDB table "hres_prod".
+
+- [ ] Another trigger to get lat,long for address for use with integration to mapping services.
 
 - [ ] Refine data modeling using NoSQL workbench.
 
