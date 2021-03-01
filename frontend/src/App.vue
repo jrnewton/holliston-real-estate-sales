@@ -1,9 +1,12 @@
 <template>
-  <main>{{ message }}</main>
+  <main>
+    {{ message }}
+  </main>
 </template>
 
 <script>
 export default {
+  name: 'App',
   data() {
     return {
       message: 'Hello, World'
@@ -13,15 +16,12 @@ export default {
 </script>
 
 <style>
-* {
-  box-sizing: border-box;
-}
-
-html {
-  font-family: sans-serif;
-}
-
-body {
-  margin: 0;
+#app {
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+  color: #2c3e50;
+  margin-top: 60px;
 }
 </style>
