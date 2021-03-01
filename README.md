@@ -12,6 +12,10 @@ Stack:
 
 In no particular order.
 
+- [ ] add kuid to all records, but not part of a key (for use by Vue).
+
+- [ ] Make sure numbers are zero padded for lexigraphical sorting.
+
 - [ ] Split ETL into process up into lambda functions:
 
   - Local node.js program: parse website and upload images to S3 bucket. Eventually run this program on scheduled EC2 instance.
