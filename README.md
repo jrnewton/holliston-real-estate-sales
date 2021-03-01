@@ -12,6 +12,8 @@ Stack:
 
 In no particular order.
 
+- [ ] generate swagger doc and host on netlify using https://github.com/swagger-api/swagger-ui
+
 - [ ] return metadata structure that describes the data object.
 
 - [ ] add kuid to all records, but not part of a key (for use by Vue).
