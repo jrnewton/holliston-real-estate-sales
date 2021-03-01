@@ -9,31 +9,25 @@ Stack:
 - Final output stored in DyanmoDB
 
 ## To Do
-
-In no particular order.
-
-- [ ] generate swagger doc and host on netlify using https://github.com/swagger-api/swagger-ui
-
-- [ ] return metadata structure that describes the data object.
-
-- [ ] add kuid to all records, but not part of a key (for use by Vue).
-
+- [ ] Build basic UI with JQuery and Google Charts https://developers.google.com/chart
+- [ ] Return metadata structure that describes the data object.
+```
+{ 
+   count: n,
+   items: [ { item1 }, ... ],
+   metadata: [ { attribute1}, ... ]
+}
+```
+- [ ] Add ksuid to all records, but not part of a PK.
 - [ ] Make sure numbers are zero padded for lexigraphical sorting.
-
+- [ ] Modify API to return Month name not number.
 - [ ] Split ETL into process up into lambda functions:
-
   - Local node.js program: parse website and upload images to S3 bucket. Eventually run this program on scheduled EC2 instance.
   - Lambda function triggered on S3 bucket update: put image through AWS textract, output into DynamoDB table "hres_etl_textract" with PK=S3 URI of image.
   - Lambda function triggered on DynamoDB stream: convert textract into records and insert into DynamoDB table "hres_prod".
-
 - [ ] Another trigger to get lat,long for address for use with integration to mapping services.
-
+- [ ] Generate swagger doc and host on netlify using https://github.com/swagger-api/swagger-ui
 - [ ] Refine data modeling using NoSQL workbench.
-
-- [ ] Refine API gateway model. Need another resource for GSI. Maybe close to done.
-
-- [ ] Build UI version 1.
-
-- [ ] Register a domain.
-
+- [ ] Add another method to API for GSI1.
+- [ ] Register a domain?
 - [ ] Buy google ads?
