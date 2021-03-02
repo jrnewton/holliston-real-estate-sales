@@ -9,15 +9,19 @@ Stack:
 - Final output stored in DyanmoDB
 
 ## To Do
+
+- [ ] capture initial dump of 10 year archive! http://archive.hollistonreporter.com/search?search=Recent+Real+Estate+Sales
 - [ ] Build basic UI with JQuery and Google Charts https://developers.google.com/chart
 - [ ] Return metadata structure that describes the data object.
+
 ```
-{ 
+{
    count: n,
    items: [ { item1 }, ... ],
    metadata: [ { attribute1}, ... ]
 }
 ```
+
 - [ ] Add ksuid to all records, but not part of a PK.
 - [ ] Make sure numbers are zero padded for lexigraphical sorting.
 - [ ] Modify API to return Month name not number.
