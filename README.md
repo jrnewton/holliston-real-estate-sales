@@ -9,8 +9,8 @@ Stack:
 - Final output stored in DyanmoDB
 
 ## To Do
-
-- [ ] capture initial dump of 10 year archive! http://archive.hollistonreporter.com/search?search=Recent+Real+Estate+Sales
+- [ ] Consider public vs. open data and anonymizing names.  https://citizens-guide-open-data.github.io/guide/4-od-and-privacy
+- [X] capture initial dump of 10 year archive! http://archive.hollistonreporter.com/search?search=Recent+Real+Estate+Sales
 - [ ] Build basic UI with JQuery and Google Charts https://developers.google.com/chart
 - [ ] Return metadata structure that describes the data object.
 
