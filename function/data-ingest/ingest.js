@@ -1,11 +1,20 @@
 'use strict';
 
+//This function is responsible for capturing new
+//source images from hollistonreporter.com
+//and uploading to S3
+
+const { sleep } = require('shlof');
 const fs = require('fs');
 const Axios = require('axios');
 const $ = require('cheerio');
 
-const getImageData = async (pageUrl, logPrefix = '') => {
-  console.log(logPrefix, 'getImage on', pageUrl);
+const indent = (level) => {
+  return ' '.repeat(level);
+};
+
+const getImageData = async (pageUrl, level = 0) => {
+  console.log(indent(level), 'getImage on', pageUrl);
   let getResponse = null;
   try {
     getResponse = await Axios.get(pageUrl);
@@ -35,7 +44,7 @@ const getImageData = async (pageUrl, logPrefix = '') => {
   return data;
 };
 
-const process = async (imageData, logPrefix = '') => {
+const process = async (imageData, level = 0) => {
   const pageUrl = imageData.pageUrl;
   const imageUrl = imageData.imageUrl;
   const imageName = imageData.imageName;
@@ -48,58 +57,60 @@ const process = async (imageData, logPrefix = '') => {
     const imagePath = '../archive/' + imageName;
     imageResponse.data.pipe(fs.createWriteStream(imagePath));
     console.log(
-      logPrefix,
+      indent(level),
       `aws s3 cp ${imagePath} s3://hres/20210301/ --metadata "page-url=${pageUrl},image-url=${imageUrl}"`
     );
   } catch (error) {
-    console.log('error', imageUrl, error);
+    console.log(indent(level), 'error', imageUrl, error);
   }
 };
 
-const rootUrls = [
-  'https://hollistonreporter.com/category/real-estate/page/1/',
-  'https://hollistonreporter.com/category/real-estate/page/2/',
-  'https://hollistonreporter.com/category/real-estate/page/3/',
-  'https://hollistonreporter.com/category/real-estate/page/4/',
-  'https://hollistonreporter.com/category/real-estate/page/5/'
-  //has text - must handle separate 'https://hollistonreporter.com/category/real-estate/page/6/'
-];
+const handler = async (_event, _context) => {
+  const rootUrls = ['https://hollistonreporter.com/category/real-estate/'];
+  let level = 0;
 
-const sleep = async (ms) => {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-};
-
-(async () => {
   for (const rootUrl of rootUrls) {
-    console.log('root', rootUrl);
+    console.log(indent(level), 'root', rootUrl);
 
     let response = null;
     try {
       response = await Axios.get(rootUrl);
     } catch (error) {
-      console.log(error);
+      console.log(indent(level), error);
     }
 
     const html = response.data;
     const links = $('h3 a', html);
 
     for (const element of links) {
+      level += 2;
       if (element.attribs.title.toUpperCase().includes('REAL ESTATE SALES')) {
         const pageUrl = element.attribs.href;
-        console.log('  ', 'save', element.attribs.title);
+        console.log(indent(level), 'save', element.attribs.title);
+
+        level += 2;
         try {
-          const imageData = await getImageData(pageUrl, '    ');
-          await process(imageData, '      ');
+          const imageData = await getImageData(pageUrl, level);
+          await process(imageData, level + 2);
         } catch (error) {
-          console.log('    ', 'error!', error);
+          console.log(indent(level), 'error!', error);
+        } finally {
+          level -= 2;
         }
       } else {
-        console.log('  ', 'reject', element.attribs.title);
+        console.log(indent(level), 'reject', element.attribs.title);
       }
+      level -= 2;
     }
 
-    sleep(5000);
+    if (rootUrls.length > 1) {
+      sleep(5000);
+    }
   }
-})();
+};
+
+exports.handler = handler;
+
+if (process.env.RUN_MAIN) {
+  handler(null, null);
+}

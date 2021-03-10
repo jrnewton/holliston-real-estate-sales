@@ -1,5 +1,9 @@
 'use strict';
 
+/*
+  One-off script to archive in s3 the 10 year archive.
+*/
+
 const fs = require('fs');
 const FormData = require('form-data');
 const Axios = require('axios');
